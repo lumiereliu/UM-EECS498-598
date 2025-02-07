@@ -437,6 +437,7 @@ def rcnn_apply_deltas_to_anchors(
     x2y2 = xy_pred + 0.5 * wh_pred
 
     output_boxes = torch.cat([x1y1, x2y2], dim=1)
+    output_boxes[(deltas == -1e8).all(dim=1)] = -1e8
     ##########################################################################
     #                             END OF YOUR CODE                           #
     ##########################################################################
@@ -615,6 +616,7 @@ class RPN(nn.Module):
         }
         locations_per_fpn_level = get_fpn_location_coords(shape_per_fpn_level, 
                                   strides_per_fpn_level,
+                                  dtype=feats_per_fpn_level['p3'].dtype,
                                   device=feats_per_fpn_level["p3"].device)
         anchors_per_fpn_level = generate_fpn_anchors(locations_per_fpn_level, 
                                 strides_per_fpn_level, 
@@ -1043,14 +1045,13 @@ class FasterRCNN(nn.Module):
         num_samples = self.batch_size_per_image * num_images
         fg_idx, bg_idx = sample_rpn_training(matched_gt_boxes, num_samples, 
                             fg_fraction=0.25)
-        sampled_indices = torch.cat([fg_idx, bg_idx])
+        sampled_indices = torch.cat([fg_idx, bg_idx], dim=0)
 
         pred_cls_logits = pred_cls_logits[sampled_indices]
         matched_gt_boxes = matched_gt_boxes[sampled_indices]
+        target_cls = (matched_gt_boxes[:, -1] + 1).long()
 
-        num_classes = self.num_classes + 1
-        target_cls = F.one_hot((matched_gt_boxes[:, -1] + 1).long(), num_classes=num_classes)
-        loss_cls = F.cross_entropy(pred_cls_logits, target_cls.float())
+        loss_cls = F.cross_entropy(pred_cls_logits, target_cls)
         ######################################################################
         #                           END OF YOUR CODE                         #
         ######################################################################
