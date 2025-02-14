@@ -90,116 +90,15 @@ for fold in range(num_folds):
 ### linear_classifier.py
 
 ~~~python
+# 计算细节
 def svm_loss_vectorized(
     W: torch.Tensor, X: torch.Tensor, y: torch.Tensor, reg: float
 ):
-    """
-    Structured SVM loss function, vectorized implementation. When you implment
-    the regularization over W, please DO NOT multiply the regularization term by
-    1/2 (no coefficient). The inputs and outputs are the same as svm_loss_naive.
-
-    Inputs:
-    - W: A PyTorch tensor of shape (D, C) containing weights.
-    - X: A PyTorch tensor of shape (N, D) containing a minibatch of data.
-    - y: A PyTorch tensor of shape (N,) containing training labels; y[i] = c means
-      that X[i] has label c, where 0 <= c < C.
-    - reg: (float) regularization strength
-
-    Returns a tuple of:
-    - loss as torch scalar
-    - gradient of loss with respect to weights W; a tensor of same shape as W
-    """
-    loss = 0.0
-    dW = torch.zeros_like(W)  # initialize the gradient as zero
-
-    #############################################################################
-    # TODO:                                                                     #
-    # Implement a vectorized version of the structured SVM loss, storing the    #
-    # result in loss.                                                           #
-    #############################################################################
-    # Replace "pass" statement with your code
-    num_train = X.shape[0]
-    scores = X.mm(W)
-    correct_class_scores = scores[torch.arange(num_train), y].view(-1, 1)
-    margins = torch.clamp(scores - correct_class_scores + 1.0, min=0.0)
-    margins[torch.arange(num_train), y] = 0.0
-    loss = margins.sum() / num_train
-    loss += reg * torch.sum(W * W)
-    #############################################################################
-    #                             END OF YOUR CODE                              #
-    #############################################################################
-
-    #############################################################################
-    # TODO:                                                                     #
-    # Implement a vectorized version of the gradient for the structured SVM     #
-    # loss, storing the result in dW.                                           #
-    #                                                                           #
-    # Hint: Instead of computing the gradient from scratch, it may be easier    #
-    # to reuse some of the intermediate values that you used to compute the     #
-    # loss.                                                                     #
-    #############################################################################
-    # Replace "pass" statement with your code
-    binary = margins
-    binary[margins > 0] = 1.0
-    row_sum = binary.sum(dim = 1)
-    binary[torch.arange(num_train), y] = -row_sum
-    
-    dW = X.t().mm(binary)
-    dW /= num_train
-    
-    dW += 2 * reg * W
-    #############################################################################
-    #                             END OF YOUR CODE                              #
-    #############################################################################
-
     return loss, dW
 
 def softmax_loss_vectorized(
     W: torch.Tensor, X: torch.Tensor, y: torch.Tensor, reg: float
 ):
-    """
-    Softmax loss function, vectorized version.  When you implment the
-    regularization over W, please DO NOT multiply the regularization term by 1/2
-    (no coefficient).
-
-    Inputs and outputs are the same as softmax_loss_naive.
-    """
-    # Initialize the loss and gradient to zero.
-    loss = 0.0
-    dW = torch.zeros_like(W)
-
-    #############################################################################
-    # TODO: Compute the softmax loss and its gradient using no explicit loops.  #
-    # Store the loss in loss and the gradient in dW. If you are not careful     #
-    # here, it is easy to run into numeric instability (Check Numeric Stability #
-    # in http://cs231n.github.io/linear-classify/). Don't forget the            #
-    # regularization!                                                           #
-    #############################################################################
-    # Replace "pass" statement with your code
-    num_train = X.shape[0]
-    scores = (X.mm(W)).t()
-    #loss nan: numerical stability
-    scores_max, _ = scores.max(dim = 0)
-    scores = scores - scores_max
-
-    exp_scores = torch.exp(scores)
-    exp_scores_sum = exp_scores.sum(dim = 0)
-    probs = exp_scores / exp_scores_sum
-    correct_class_probs = probs[y, torch.arange(num_train)]
-
-    loss += -torch.sum(torch.log(correct_class_probs))
-    loss /= num_train
-    loss += reg * torch.sum(W * W)
-
-    margins = probs
-    margins[y, torch.arange(num_train)] -= 1
-    dW = margins.mm(X).t()
-    dW /= num_train
-    dW += 2 * reg * W
-    #############################################################################
-    #                          END OF YOUR CODE                                 #
-    #############################################################################
-
     return loss, dW
 ~~~
 
@@ -336,6 +235,8 @@ dx = dx_padded[:, :, pad:pad+H, pad:pad+W]
 
 ### common.py
 
+backbone+fpn提取三个大小的特征
+
 ~~~python
 # F.interpolate() 上滤用法
 c3 = backbone_feats["c3"]
@@ -361,6 +262,8 @@ coords = torch.stack([x_grid_flat, y_grid_flat], dim=1)
 
 ### one_stage_detector.py
 
+fpn提取特征 -> prediction head计算出每个location的deltas和class
+
 ~~~python
 # loss_cls的计算 F.one_hot()用法 
 target_cls = F.one_hot((matched_gt_boxes[:, :, -1] + 1).long(), num_classes = self.num_classes + 1)
@@ -380,6 +283,8 @@ loss_ctr[matched_gt_centerness < 0] *= 0.0
 ~~~
 
 ### two_stage_detector.py
+
+fpn提取特征 -> rpn计算proposals -> proposals reassign回对应stride层 -> proposals提取对应层特征 -> roi_align整合为同一大小 -> prediction head 计算 每个box的 class (理论上还需微调deltas)
 
 ~~~python
 # 扩展维度+广播 unsqueeze()
@@ -480,5 +385,85 @@ loss_box = F.l1_loss(
     reduction="none"
 )
 loss_box[sampled_gt_deltas == -1e8] *= 0.0
+~~~
+
+~~~python
+@torch.no_grad()
+def reassign_proposals_to_fpn_levels(
+    proposals_per_image: List[torch.Tensor],
+    gt_boxes: Optional[torch.Tensor] = None,
+    fpn_level_ids: List[int] = [3, 4, 5],
+) -> Dict[str, List[torch.Tensor]]:
+    
+    return proposals_per_fpn_level
+~~~
+
+Ah,我现在来详细解释一下`reassign_proposals_to_fpn_levels`函数在Faster R-CNN中的具体作用：
+
+1. **为什么需要这个函数？**
+- RPN阶段生成的proposals虽然来自不同FPN层级，但在传递到下一阶段时，我们丢失了这些proposals原本属于哪个FPN层级的信息
+- 即使知道原始层级，一个proposal可能已经通过RPN的边界框回归发生了很大变化（比如一个来自P5的大框被回归成了一个小框）
+- 为了在RoIAlign阶段选择最合适的特征层级，我们需要重新根据proposal的大小分配FPN层级
+
+2. **在pipeline中的位置**：
+```
+图像 → Backbone+FPN → RPN生成proposals 
+→ reassign_proposals_to_fpn_levels函数重新分配层级 
+→ RoIAlign从对应层级提取特征 → 检测头
+```
+
+3. **具体作用**：
+- 根据每个proposal的面积大小，使用公式计算其应该属于哪个FPN层级：
+  ```python
+  k = 4 + log2(sqrt(area)/224)  # 论文公式(1)
+  ```
+- 大框会被分配到更高的FPN层级（如P5）
+- 小框会被分配到更低的FPN层级（如P3）
+- 这确保了在RoIAlign时从最合适的特征分辨率提取特征
+
+4. **训练时的额外功能**：
+- 在训练阶段，会将GT boxes也混合到proposals中
+- GT boxes同样按照大小分配到不同FPN层级
+- 这样做可以提供更好的训练样本，特别是在RPN训练初期其生成的proposals质量不高时
+
+这个函数是连接RPN和检测头的关键组件，它确保了每个proposal都能从最合适的特征层级提取特征，从而提高检测的准确性。这也是FPN论文中的一个重要创新点。
+
+## A5
+
+### rnn_layers.py
+
+~~~python
+# 前向传播的计算
+def rnn_step_forward(x, prev_h, Wx, Wh, b):
+    return next_h, cache
+
+# 反向传播梯度的计算
+def rnn_step_backward(dnext_h, cache):
+    return dx, dprev_h, dWx, dWh, db
+~~~
+
+$$
+h_t = tanh(pre_h) \qquad \frac{\partial{h_t}}{\partial{pre_h}} = 1-tanh^2(pre_h)
+$$
+
+~~~python
+# x.shape = (N, T) W.shape = (V, D) out.shape = (N, T, D)
+# 高级索引机制
+def word_embedding_forward(x, W):
+   
+    out = W[x]
+    cache = (x, W)
+
+    return out, cache
+
+# 反向传播原理 / np.add.at() 与 += 区别 / np.add.at()并行性差
+def word_embedding_backward(dout, cache):
+    return dW
+~~~
+
+~~~python
+# mask的含义 / x(scores) 从 h 转变来
+def temporal_softmax_loss(x, y, mask, verbose=False):
+    return loss, dx
 ~~~
 
