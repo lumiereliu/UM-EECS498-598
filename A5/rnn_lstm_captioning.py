@@ -468,7 +468,10 @@ class CaptioningRNN(nn.Module):
         self.image_encoder = ImageEncoder(pretrained=image_encoder_pretrained)
         self.feature_proj = nn.Linear(input_dim, hidden_dim)
         self.word_embedding = WordEmbedding(vocab_size, wordvec_dim)
-        self.rnn = RNN(input_dim=wordvec_dim, hidden_dim=hidden_dim)
+        if self.cell_type == 'rnn':
+            self.caption_net = RNN(input_dim=wordvec_dim, hidden_dim=hidden_dim)
+        elif self.cell_type == 'lstm':
+            self.caption_net = LSTM(input_dim=wordvec_dim, hidden_dim=hidden_dim)
         self.output_proj = nn.Linear(hidden_dim, vocab_size)
 
         ######################################################################
@@ -528,9 +531,9 @@ class CaptioningRNN(nn.Module):
 
         word_embeddings = self.word_embedding(captions_in)
 
-        rnn_outputs = self.rnn(word_embeddings, h0)
+        outputs = self.caption_net(word_embeddings, h0)
 
-        scores = self.output_proj(rnn_outputs)
+        scores = self.output_proj(outputs)
 
         loss = temporal_softmax_loss(scores, captions_out, ignore_index=self.ignore_index)
 
@@ -603,12 +606,18 @@ class CaptioningRNN(nn.Module):
         captions[:, 0] = self._start
         current_word = torch.full((N,), self._start)  
         prev_h = h0
+        prev_c = torch.zeros_like(h0)
 
         for t in range(1, max_length):
             word_embedding = self.word_embedding(current_word)
-            
-            next_h = self.rnn.step_forward(word_embedding, prev_h)
+
+            if self.cell_type == 'rnn':
+                next_h = self.caption_net.step_forward(word_embedding, prev_h)
+            elif self.cell_type == 'lstm':
+                next_h, prev_c = self.caption_net.step_forward(word_embedding, prev_h, prev_c)
+                
             scores = self.output_proj(next_h)
+
             next_word = torch.argmax(scores, dim=1)
 
             captions[:, t] = next_word
@@ -675,7 +684,18 @@ class LSTM(nn.Module):
         ######################################################################
         next_h, next_c = None, None
         # Replace "pass" statement with your code
-        pass
+
+        a = x.mm(self.Wx) + prev_h.mm(self.Wh) + self.b
+        a_i, a_f, a_o, a_g = a.chunk(4, dim=1)
+
+        i = torch.sigmoid(a_i)
+        f = torch.sigmoid(a_f)
+        o = torch.sigmoid(a_o)
+        g = torch.tanh(a_g)
+
+        next_c = f * prev_c + i * g
+        next_h = o * torch.tanh(next_c)
+
         ######################################################################
         #                           END OF YOUR CODE                         #
         ######################################################################
@@ -709,7 +729,21 @@ class LSTM(nn.Module):
         ######################################################################
         hn = None
         # Replace "pass" statement with your code
-        pass
+        
+        N, T, D = x.shape
+        _, H = h0.shape
+        device = x.device
+
+        prev_h = h0
+        prev_c = c0
+        hn = torch.zeros((N, T, H), device=device)
+
+        for t in range(T):
+            next_h, next_c = self.step_forward(x[:, t, :], prev_h, prev_c)
+            hn[:, t, :] = next_h
+            prev_h = next_h
+            prev_c = next_c
+
         ######################################################################
         #                           END OF YOUR CODE                         #
         ######################################################################
