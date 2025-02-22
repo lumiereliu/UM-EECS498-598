@@ -430,7 +430,7 @@ Ah,我现在来详细解释一下`reassign_proposals_to_fpn_levels`函数在Fast
 
 ## A5
 
-### rnn_layers.py
+### rnn_lstm_captioning.py
 
 ~~~python
 # 前向传播的计算
@@ -466,4 +466,61 @@ def word_embedding_backward(dout, cache):
 def temporal_softmax_loss(x, y, mask, verbose=False):
     return loss, dx
 ~~~
+
+~~~python
+# attn_lstm的feature_proj为Conv2D
+def dot_product_attention(prev_h, A):
+    """
+    A simple scaled dot-product attention layer.
+
+    Args:
+        prev_h: The LSTM hidden state from previous time step, of shape (N, H)
+        A: **Projected** CNN feature activation, of shape (N, H, 4, 4),
+         where H is the LSTM hidden state size
+
+    Returns:
+        attn: Attention embedding output, of shape (N, H)
+        attn_weights: Attention weights, of shape (N, 4, 4)
+
+    """
+    N, H, D_a, _ = A.shape
+
+    attn, attn_weights = None, None
+    ##########################################################################
+    # TODO: Implement the scaled dot-product attention we described earlier. #
+    # You will use this function for `AttentionLSTM` forward and sample      #
+    # functions. HINT: Make sure you reshape attn_weights back to (N, 4, 4)! #
+    ##########################################################################
+    # Replace "pass" statement with your code
+
+    attn_scores = (prev_h.reshape(N, H, 1, 1) * A).sum(dim=1) / (H ** 0.5)
+    attn_weights = F.softmax(attn_scores.reshape(N, -1), dim=-1).reshape(N, D_a, D_a)
+    attn = (attn_weights.view(N, 1, D_a, D_a) * A).sum(dim = (2, 3))
+
+    ##########################################################################
+    #                             END OF YOUR CODE                           #
+    ##########################################################################
+
+    return attn, attn_weights
+~~~
+
+### Tranformer.py
+
+~~~python
+# for loop 创造 list写法 / nn.ModuleList用法
+self.attention_heads = nn.ModuleList([
+    SelfAttention(dim_in, dim_out, dim_out) for _ in range(num_heads)
+])
+
+# 广播机制的深入理解，最后一维需要对齐 / unbiased用法
+def forward(self, x: Tensor):
+    mean = x.mean(dim=-1, keepdim=True)
+    var = x.var(dim=-1, unbiased=False, keepdim=True)
+    x_normalized = (x - mean) / torch.sqrt(var + self.epsilon)
+    y = self.gamma * x_normalized + self.beta
+
+    return y
+~~~
+
+
 
