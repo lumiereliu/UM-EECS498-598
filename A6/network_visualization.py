@@ -41,7 +41,12 @@ def compute_saliency_maps(X, y, model):
     # Hint: X.grad.data stores the gradients                                     #
     ##############################################################################
     # Replace "pass" statement with your code
-    pass
+
+    pred_scores = model(X)
+    loss = torch.nn.functional.cross_entropy(pred_scores, y, reduction='sum')
+    loss.backward()
+    saliency, _ = X.grad.data.max(dim=1)
+
     ##############################################################################
     #               END OF YOUR CODE                                             #
     ##############################################################################
@@ -84,7 +89,21 @@ def make_adversarial_attack(X, target_y, model, max_iter=100, verbose=True):
     # You can print your progress over iterations to check your algorithm.       #
     ##############################################################################
     # Replace "pass" statement with your code
-    pass
+
+    for iter in range(max_iter):
+        pred_scores = model(X_adv)
+        target_score, pred_y = pred_scores.max(dim=1)
+        if verbose == True:
+            print(f"Iteration {iter}: target score {target_score.item():.3f}, predicted class {pred_y.item()}")
+        if pred_y == target_y:
+            break
+
+        loss = pred_scores[0, target_y]
+        loss.backward()
+        with torch.no_grad():
+            gradient = X_adv.grad.data
+            X_adv += learning_rate * gradient / torch.sqrt(gradient ** 2 + 1e-8)
+             
     ##############################################################################
     #                             END OF YOUR CODE                               #
     ##############################################################################
@@ -119,7 +138,18 @@ def class_visualization_step(img, target_y, model, **kwargs):
     # after each step.                                                     #
     ########################################################################
     # Replace "pass" statement with your code
-    pass
+
+    if img.grad is not None:
+        img.grad.zero_()
+    
+    pred_scores = model(img)
+
+    loss = pred_scores[0, target_y] - l2_reg * (img ** 2).sum()
+    loss.backward()
+    with torch.no_grad():
+        gradient = img.grad.data
+        img += learning_rate * gradient
+
     ########################################################################
     #                             END OF YOUR CODE                         #
     ########################################################################
