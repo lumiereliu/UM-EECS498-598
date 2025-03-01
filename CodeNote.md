@@ -522,5 +522,19 @@ def forward(self, x: Tensor):
     return y
 ~~~
 
+## A6
 
+### vae.py
 
+~~~python
+# reparametrize与直接采样相比的优点
+~~~
+
+### gan.py
+
+~~~python
+# D_loss / G_loss怎么算
+# nn.ConvTranspose2d用法 具体过程
+~~~
+
+![ConvTranspose](D:\CSDIY\EECS498\note\ConvTranspose.png)
