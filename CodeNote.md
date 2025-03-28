@@ -537,4 +537,4 @@ def forward(self, x: Tensor):
 # nn.ConvTranspose2d用法 具体过程
 ~~~
 
-![ConvTranspose](.\note\images\ConvTranspose.png)
+![ConvTranspose](./note/images/ConvTranspose.png)
